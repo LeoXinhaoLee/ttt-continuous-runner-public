@@ -1,0 +1,88 @@
+name: AMD PyTorch Job
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Unique identifier for this run'
+        required: true
+        type: string
+      payload:
+        description: 'Content of the user submission, as json string'
+        required: true
+        type: string
+      runner:
+        description: 'AMD runner to run workflow on'
+        required: true
+        default: "amdgpu-mi300-x86-64"
+        type: string
+      requirements:
+        description: 'Contents for a requirements.txt file'
+        required: false
+        type: string
+
+run-name: 'AMD Job - ${{ github.event.inputs.run_id }}'
+
+jobs:
+  run:
+    runs-on: ${{ github.event.inputs.runner }}
+    strategy:
+      fail-fast: false
+    timeout-minutes: 20
+    steps:
+    - uses: actions/checkout@v3
+    - name: Create input files
+      shell: bash
+      run: |
+        # Extract the payload content without printing it
+        PAYLOAD=$(jq -r '.inputs.payload' $GITHUB_EVENT_PATH)
+
+        # Apply mask to the extracted content
+        echo "::add-mask::$PAYLOAD"
+
+        # Now write to file (won't be logged since it's masked)
+        echo "$PAYLOAD" > payload.json
+
+    - name: Set venv directory based on runner
+      run: |
+        if [[ "${{ github.event.inputs.runner }}" == "amdgpu-mi250-x86-64" ]]; then
+          echo "VENV_DIR=/groups/aig_sharks/pytorch_venv" >> $GITHUB_ENV
+        fi
+
+    - name: Setup Virtual Environment and Install Dependencies
+      shell: bash
+      run: |
+        if [[ "${{ github.event.inputs.runner }}" == "amdgpu-mi250-x86-64" ]]; then
+          python -m venv ${VENV_DIR}
+          source ${VENV_DIR}/bin/activate
+        fi
+        pip install --upgrade pip
+        if [[ -n "${{ github.event.inputs.requirements }}" ]]; then
+          cat > "requirements.txt" <<'EOL'
+          ${{ github.event.inputs.requirements }}
+        EOL
+        pip install -r "requirements.txt"
+        fi
+        pip install -e .
+
+    - name: Run script
+      shell: bash
+      run: |
+        if [[ "${{ github.event.inputs.runner }}" == "amdgpu-mi250-x86-64" ]]; then
+          source ${VENV_DIR}/bin/activate
+        fi
+        python3 src/runners/github-runner.py
+
+    - name: Upload training artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: run-result
+        path: result.json
+
+    - name: Upload profiling artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: profile-data
+        path: profile_data/*
+        retention-days: 1

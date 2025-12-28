@@ -1,0 +1,76 @@
+name: AMD MLA-Decode Eval Job
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Unique identifier for this run'
+        required: true
+        type: string
+      payload:
+        description: 'Content of the user submission, as json string'
+        required: true
+        type: string
+      runner:
+        description: 'AMD runner to run workflow on'
+        required: true
+        default: "amd-docker"
+        type: string
+      requirements:
+        description: 'Contents for a requirements.txt file'
+        required: false
+        type: string
+
+run-name: 'AMD MLA-Decode Job - ${{ github.event.inputs.run_id }}'
+
+jobs:
+  run:
+    runs-on: ${{ github.event.inputs.runner }}
+    timeout-minutes: 30
+    container:
+      image: ghcr.io/leoxinhaolee/amd-runner:latest
+      options: --privileged --user root
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Create input files
+      shell: bash
+      working-directory: discord-cluster-manager
+      run: |
+        # Extract the payload content without printing it
+        PAYLOAD=$(jq -r '.inputs.payload' $GITHUB_EVENT_PATH)
+
+        # Apply mask to the extracted content
+        echo "::add-mask::$PAYLOAD"
+
+        # Now write to file (won't be logged since it's masked)
+        echo "$PAYLOAD" > payload.json
+
+    - name: Setup Virtual Environment and Install Dependencies
+      shell: bash
+      working-directory: discord-cluster-manager
+      run: |
+        pip install --upgrade pip --root-user-action=ignore
+        if [[ -n "${{ github.event.inputs.requirements }}" ]]; then
+          cat > "requirements.txt" <<'EOL'
+          ${{ github.event.inputs.requirements }}
+        EOL
+          pip install -r "requirements.txt" --root-user-action=ignore
+        fi
+        if [[ -f "requirements-dev.txt" ]]; then
+          pip install -r "requirements-dev.txt" --root-user-action=ignore
+        fi
+        pip install -e . --root-user-action=ignore
+
+    - name: Run eval script
+      shell: bash
+      working-directory: discord-cluster-manager
+      run: |
+        python3 src/runners/github-runner.py
+
+    - name: Upload training artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: run-result
+        path: discord-cluster-manager/result.json
+        retention-days: 1
