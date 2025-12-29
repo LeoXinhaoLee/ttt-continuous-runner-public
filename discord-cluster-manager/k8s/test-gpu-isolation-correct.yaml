@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-isolation-test-correct
+  namespace: arc-runners
+spec:
+  restartPolicy: Never
+  securityContext:
+    seccompProfile:
+      type: Unconfined
+    runAsUser: 0
+    runAsGroup: 0
+    supplementalGroups:
+      - 992
+  volumes:
+    - name: dshm
+      emptyDir:
+        medium: Memory
+        sizeLimit: "8Gi"
+  containers:
+    - name: test
+      image: ghcr.io/leoxinhaolee/amd-runner:latest
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          echo "=== GPU Isolation Test (Non-Privileged, Correct Config) ==="
+          echo ""
+          echo "1. Environment Variables:"
+          echo "   ROCR_VISIBLE_DEVICES: ${ROCR_VISIBLE_DEVICES:-not set}"
+          echo "   HIP_VISIBLE_DEVICES: ${HIP_VISIBLE_DEVICES:-not set}"
+          echo ""
+          echo "2. Device Files (what pod can access):"
+          ls -1 /dev/dri/renderD* 2>/dev/null | wc -l | xargs -I {} echo "   Render devices found: {}"
+          ls -la /dev/dri/renderD* 2>/dev/null | head -5 || echo "   No render devices"
+          echo ""
+          echo "3. PyTorch GPU Detection:"
+          python3 -c "
+          import torch
+          is_avail = torch.cuda.is_available()
+          print('   torch.cuda.is_available():', is_avail)
+          if is_avail:
+              count = torch.cuda.device_count()
+              print('   torch.cuda.device_count():', count)
+              if count == 1:
+                  print('   ✅ CORRECT: Pod sees exactly 1 GPU (its allocated GPU)')
+                  print(f'   GPU 0 name: {torch.cuda.get_device_name(0)}')
+              else:
+                  print(f'   ❌ PROBLEM: Pod sees {count} GPUs (should be 1)')
+          else:
+              print('   ❌ GPU not available - checking why...')
+              import os
+              print('   Checking /dev/kfd access...')
+              try:
+                  with open('/dev/kfd', 'r') as f:
+                      print('   ✅ /dev/kfd is accessible')
+              except Exception as e:
+                  print(f'   ❌ /dev/kfd access error: {e}')
+          "
+          echo ""
+          echo "=== Test Complete ==="
+          sleep 300
+      resources:
+        requests:
+          amd.com/gpu: "1"
+        limits:
+          amd.com/gpu: "1"
+      volumeMounts:
+        - name: dshm
+          mountPath: /dev/shm
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        capabilities:
+          add:
+            - SYS_ADMIN
+  nodeSelector:
+    amd.com/gpu.present: "true"
+

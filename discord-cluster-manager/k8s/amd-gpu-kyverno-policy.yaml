@@ -20,14 +20,14 @@ spec:
         patchStrategicMerge:
           spec:
             # k3s uses containerd+runc with different LSM defaults than Docker
-            # Explicitly disable seccomp and AppArmor for ROCm compatibility
+            # Explicitly disable seccomp for ROCm compatibility (but don't use privileged mode)
             securityContext:
               seccompProfile:
                 type: Unconfined
-              runAsUser: 0
+              runAsUser: 0  # Run as root for device file access
               runAsGroup: 0
               supplementalGroups:
-                - 992  # render group for AMD GPU access
+                - 992  # render group for AMD GPU access (allows access to /dev/dri/renderD*)
             # Large /dev/shm for PyTorch/ROCm (default is too small)
             volumes:
               - name: dshm
@@ -41,20 +41,18 @@ spec:
                     amd.com/gpu: "1"
                   limits:
                     amd.com/gpu: "1"
-                # Note: HSA_OVERRIDE_GFX_VERSION removed - only set if actually needed
-                # Note: ROCR_VISIBLE_DEVICES not needed - device plugin handles GPU allocation
+                # Note: Do NOT set ROCR_VISIBLE_DEVICES - let device plugin handle GPU isolation
+                # Device plugin restricts device file access so each pod only sees its allocated GPU
                 volumeMounts:
                   - name: dshm
                     mountPath: /dev/shm
+                # Non-privileged: device plugin will restrict device file access
+                # Keep minimal capabilities and runAsUser for device access
                 securityContext:
-                  privileged: true  # Privileged mode gives access to all devices including /dev/kfd and /dev/dri
-                  allowPrivilegeEscalation: true
-                  runAsUser: 0  # Run as root to match device file ownership
+                  runAsUser: 0  # Root needed for /dev/kfd access
                   runAsGroup: 0
                   capabilities:
                     add:
-                      - SYS_ADMIN
-                      - SYS_RESOURCE
-                      - SYS_PTRACE
+                      - SYS_ADMIN  # Minimal capability, device plugin still restricts device access
             nodeSelector:
               amd.com/gpu.present: "true"

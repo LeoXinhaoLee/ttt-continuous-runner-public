@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-isolation-test-np
+  namespace: arc-runners
+spec:
+  restartPolicy: Never
+  volumes:
+    - name: dshm
+      emptyDir:
+        medium: Memory
+        sizeLimit: "8Gi"
+  containers:
+    - name: test
+      image: ghcr.io/leoxinhaolee/amd-runner:latest
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          echo "=== GPU Isolation Test (Non-Privileged) ==="
+          echo ""
+          echo "1. Environment Variables:"
+          echo "   ROCR_VISIBLE_DEVICES: ${ROCR_VISIBLE_DEVICES:-not set}"
+          echo "   HIP_VISIBLE_DEVICES: ${HIP_VISIBLE_DEVICES:-not set}"
+          echo ""
+          echo "2. Device Files (what pod can access):"
+          ls -la /dev/dri/renderD* 2>/dev/null | head -10 || echo "   No render devices found"
+          echo ""
+          echo "3. PyTorch GPU Detection:"
+          python3 -c "
+          import torch
+          print('   torch.cuda.is_available():', torch.cuda.is_available())
+          if torch.cuda.is_available():
+              count = torch.cuda.device_count()
+              print('   torch.cuda.device_count():', count)
+              if count == 1:
+                  print('   ✅ CORRECT: Pod sees exactly 1 GPU (its allocated GPU)')
+              else:
+                  print(f'   ❌ PROBLEM: Pod sees {count} GPUs (should be 1)')
+              for i in range(torch.cuda.device_count()):
+                  print(f'   GPU {i}: {torch.cuda.get_device_name(i)}')
+          "
+          echo ""
+          echo "=== Test Complete ==="
+          echo ""
+          echo "EXPECTED: device_count() should be 1"
+          echo "If device_count() > 1, device plugin is NOT isolating GPUs properly"
+          sleep 300  # Keep pod running for inspection
+      resources:
+        requests:
+          amd.com/gpu: "1"
+        limits:
+          amd.com/gpu: "1"
+      volumeMounts:
+        - name: dshm
+          mountPath: /dev/shm
+      # Non-privileged - let device plugin handle device access
+      securityContext:
+        capabilities:
+          add:
+            - SYS_ADMIN
+  nodeSelector:
+    amd.com/gpu.present: "true"
+

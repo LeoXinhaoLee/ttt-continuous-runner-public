@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-isolation-test
+  namespace: arc-runners
+spec:
+  restartPolicy: Never
+  securityContext:
+    seccompProfile:
+      type: Unconfined
+    runAsUser: 0
+    runAsGroup: 0
+    supplementalGroups:
+      - 992
+  volumes:
+    - name: dshm
+      emptyDir:
+        medium: Memory
+        sizeLimit: "8Gi"
+  containers:
+    - name: test
+      image: ghcr.io/leoxinhaolee/amd-runner:latest
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          echo "=== GPU Isolation Test ==="
+          echo ""
+          echo "1. Environment Variables:"
+          echo "   ROCR_VISIBLE_DEVICES: ${ROCR_VISIBLE_DEVICES:-not set}"
+          echo "   HIP_VISIBLE_DEVICES: ${HIP_VISIBLE_DEVICES:-not set}"
+          echo ""
+          echo "2. Device Files:"
+          ls -la /dev/dri/renderD* 2>/dev/null | head -10 || echo "   No render devices found"
+          echo ""
+          echo "3. PyTorch GPU Detection:"
+          python3 -c "
+          import torch
+          print('   torch.cuda.is_available():', torch.cuda.is_available())
+          if torch.cuda.is_available():
+              print('   torch.cuda.device_count():', torch.cuda.device_count())
+              for i in range(torch.cuda.device_count()):
+                  print(f'   GPU {i}: {torch.cuda.get_device_name(i)}')
+          "
+          echo ""
+          echo "4. ROCm Info (if available):"
+          rocminfo 2>/dev/null | grep -A 5 "Device Type\|Device Name" | head -10 || echo "   rocminfo not available"
+          echo ""
+          echo "=== Test Complete ==="
+          echo ""
+          echo "EXPECTED: device_count() should be 1"
+          echo "If device_count() > 1, the device plugin is NOT isolating GPUs"
+          sleep 300  # Keep pod running for inspection
+      resources:
+        requests:
+          amd.com/gpu: "1"
+        limits:
+          amd.com/gpu: "1"
+      volumeMounts:
+        - name: dshm
+          mountPath: /dev/shm
+      securityContext:
+        privileged: true
+        allowPrivilegeEscalation: true
+        runAsUser: 0
+        runAsGroup: 0
+        capabilities:
+          add:
+            - SYS_ADMIN
+            - SYS_RESOURCE
+            - SYS_PTRACE
+  nodeSelector:
+    amd.com/gpu.present: "true"
+

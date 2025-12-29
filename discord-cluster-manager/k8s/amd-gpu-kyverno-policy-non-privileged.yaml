@@ -1,0 +1,48 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: inject-amd-gpu-resources
+  annotations:
+    description: "Injects AMD GPU resource requests (1 GPU per pod) and node selector for ARC workflow job containers (matches pods ending with -workflow). Uses device plugin isolation (non-privileged)."
+spec:
+  background: false
+  rules:
+    - name: add-amd-gpu-resources-to-workflow-pods
+      match:
+        resources:
+          kinds:
+            - Pod
+          namespaces:
+            - arc-runners
+          names:
+            - "*-workflow"
+      mutate:
+        patchStrategicMerge:
+          spec:
+            # Large /dev/shm for PyTorch/ROCm (default is too small)
+            volumes:
+              - name: dshm
+                emptyDir:
+                  medium: Memory
+                  sizeLimit: "8Gi"
+            containers:
+              - (name): "*"
+                resources:
+                  requests:
+                    amd.com/gpu: "1"
+                  limits:
+                    amd.com/gpu: "1"
+                # Let device plugin handle GPU isolation - don't set ROCR_VISIBLE_DEVICES
+                # Device plugin will restrict device file access so each pod only sees its allocated GPU
+                volumeMounts:
+                  - name: dshm
+                    mountPath: /dev/shm
+                # Remove privileged mode - let device plugin handle device access restrictions
+                # Only keep minimal capabilities needed for ROCm
+                securityContext:
+                  capabilities:
+                    add:
+                      - SYS_ADMIN  # May still be needed for ROCm, but device plugin restricts device access
+            nodeSelector:
+              amd.com/gpu.present: "true"
+

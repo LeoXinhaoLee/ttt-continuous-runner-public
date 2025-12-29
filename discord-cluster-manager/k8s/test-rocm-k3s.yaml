@@ -33,24 +33,14 @@ spec:
       securityContext:
         privileged: true
         allowPrivilegeEscalation: true
-      command: ["/bin/bash", "-c"]
+      command: ["/bin/bash","-lc"]
       args:
         - |
           set -euo pipefail
-          echo "=== Step 1: Device files ==="
           ls -l /dev/kfd || true
           ls -l /dev/dri/renderD* | head -20 || true
-          echo ""
-          echo "=== Step 2: ROCm info ==="
-          timeout 10 rocminfo --support | head -80 || true
-          echo ""
-          echo "=== Step 3: PyTorch GPU detection ==="
-          python3 -c "import torch; print('torch', torch.__version__); print('is_available', torch.cuda.is_available()); print('GPU count:', torch.cuda.device_count() if torch.cuda.is_available() else 0)" 2>&1
-          echo ""
-          echo "=== Step 4: PyTorch operation (1024x1024) ==="
-          timeout 30 python3 -c "import torch; print('Creating tensor...'); x = torch.rand((1024,1024), device='cuda'); print('Tensor created'); y = x @ x; print('Matrix multiply done'); torch.cuda.synchronize(); print('SUCCESS: ok', y.mean().item())" 2>&1
-          echo ""
-          echo "=== Test complete ==="
+          timeout 10 rocminfo --support | head -80
+          timeout 30 python3 -c "import torch; print('torch', torch.__version__); print('is_available', torch.cuda.is_available()); x = torch.rand((1024,1024), device='cuda'); y = x @ x; torch.cuda.synchronize(); print('ok', y.mean().item())"
   nodeSelector:
     amd.com/gpu.present: "true"
 

@@ -46,6 +46,35 @@ if [ -z "$GITHUB_URL" ] || [ -z "$GITHUB_PAT" ]; then
     exit 1
 fi
 
+# Set up kubeconfig
+if [ ! -f ~/.kube/config ]; then
+    if [ -f /etc/rancher/k3s/k3s.yaml ]; then
+        echo -e "${YELLOW}Kubeconfig not found. Attempting to copy from /etc/rancher/k3s/k3s.yaml...${NC}"
+        mkdir -p ~/.kube
+        # Try with sudo if available, otherwise give instructions
+        if command -v sudo &> /dev/null; then
+            if sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config 2>/dev/null && sudo chown $USER:$USER ~/.kube/config 2>/dev/null; then
+                echo -e "${GREEN}✓ Kubeconfig set up${NC}"
+            else
+                echo -e "${RED}✗ Failed to copy kubeconfig (sudo may require password). Please have root user run:${NC}"
+                echo "  mkdir -p ~/.kube"
+                echo "  cp /etc/rancher/k3s/k3s.yaml ~/.kube/config"
+                echo "  chown $USER:$USER ~/.kube/config"
+                exit 1
+            fi
+        else
+            echo -e "${RED}✗ Sudo not available. Please have root user run:${NC}"
+            echo "  mkdir -p ~/.kube"
+            echo "  cp /etc/rancher/k3s/k3s.yaml ~/.kube/config"
+            echo "  chown $USER:$USER ~/.kube/config"
+            exit 1
+        fi
+    else
+        echo -e "${RED}✗ Kubeconfig not found and k3s config not available${NC}"
+        exit 1
+    fi
+fi
+
 export KUBECONFIG=~/.kube/config
 
 # Get script directory
@@ -95,8 +124,44 @@ echo ""
 echo -e "${GREEN}Step 2: Checking Helm...${NC}"
 if ! command -v helm &> /dev/null; then
     echo -e "${YELLOW}Helm not found. Installing...${NC}"
-    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-    echo -e "${GREEN}✓ Helm installed${NC}"
+    
+    # Try to install Helm without sudo first (user directory)
+    HELM_VERSION="v3.14.0"
+    HELM_INSTALL_DIR="$HOME/.local/bin"
+    mkdir -p "$HELM_INSTALL_DIR"
+    
+    # Download Helm binary
+    ARCH=$(uname -m)
+    case $ARCH in
+        x86_64) HELM_ARCH="amd64" ;;
+        aarch64|arm64) HELM_ARCH="arm64" ;;
+        *) HELM_ARCH="amd64" ;;
+    esac
+    
+    HELM_URL="https://get.helm.sh/helm-${HELM_VERSION}-linux-${HELM_ARCH}.tar.gz"
+    
+    if curl -fsSL "$HELM_URL" -o /tmp/helm.tar.gz; then
+        tar -xzf /tmp/helm.tar.gz -C /tmp
+        mv /tmp/linux-${HELM_ARCH}/helm "$HELM_INSTALL_DIR/helm"
+        chmod +x "$HELM_INSTALL_DIR/helm"
+        rm -rf /tmp/helm.tar.gz /tmp/linux-${HELM_ARCH}
+        
+        # Add to PATH if not already there
+        if [[ ":$PATH:" != *":$HELM_INSTALL_DIR:"* ]]; then
+            export PATH="$HELM_INSTALL_DIR:$PATH"
+            echo "export PATH=\"$HELM_INSTALL_DIR:\$PATH\"" >> ~/.bashrc
+        fi
+        
+        # Verify helm is now available
+        if command -v helm &> /dev/null; then
+            echo -e "${GREEN}✓ Helm installed to $HELM_INSTALL_DIR${NC}"
+        else
+            echo -e "${YELLOW}⚠ Helm installed but not in PATH. Please run: export PATH=\"$HELM_INSTALL_DIR:\$PATH\"${NC}"
+        fi
+    else
+        echo -e "${RED}✗ Failed to download Helm${NC}"
+        exit 1
+    fi
 else
     echo -e "${GREEN}✓ Helm already installed${NC}"
 fi
@@ -246,13 +311,26 @@ if [ "$SKIP_TESTS" = false ]; then
         echo "Creating test pod..."
         kubectl apply -f test-rocm-k3s.yaml > /dev/null 2>&1
         
-        echo "Waiting for pod to be ready..."
-        if kubectl wait --for=condition=Ready pod/rocm-torch-smoke -n arc-runners --timeout=120s > /dev/null 2>&1; then
+        echo "Waiting for pod to complete..."
+        # Wait for pod to be scheduled first
+        if kubectl wait --for=condition=Ready pod/rocm-torch-smoke -n arc-runners --timeout=60s > /dev/null 2>&1; then
+            # Then wait for pod to complete (phase=Succeeded or phase=Failed)
+            echo "Waiting for test to finish..."
+            for i in {1..60}; do
+                PHASE=$(kubectl get pod rocm-torch-smoke -n arc-runners -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+                if [ "$PHASE" = "Succeeded" ] || [ "$PHASE" = "Failed" ]; then
+                    break
+                fi
+                sleep 2
+            done
+            
             echo "Checking test results..."
-            if kubectl logs rocm-torch-smoke -n arc-runners 2>&1 | grep -q "SUCCESS"; then
+            TEST_LOGS=$(kubectl logs rocm-torch-smoke -n arc-runners 2>&1)
+            if echo "$TEST_LOGS" | grep -qi "SUCCESS"; then
                 echo -e "  ${GREEN}✓${NC} GPU test: PASSED"
             else
                 echo -e "  ${YELLOW}⚠${NC} GPU test: Completed but check logs for details"
+                echo "  (Run: kubectl logs rocm-torch-smoke -n arc-runners)"
             fi
             kubectl delete pod rocm-torch-smoke -n arc-runners > /dev/null 2>&1
         else

@@ -136,7 +136,6 @@ async def run_mla_decode_on_github(
         mode=mode_enum,
     )
 
-    # Determine runner name based on GPU type (if not explicitly provided)
     if runner_name is None:
         # Default to ARC runner, but can be overridden via parameter
         runner_name_map = {
