@@ -1,0 +1,29 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: inject-amd-gpu-node-selector
+  annotations:
+    description: "Injects node selector for AMD GPU nodes (for use without GPU device plugin)"
+spec:
+  rules:
+    - name: add-amd-gpu-node-selector
+      match:
+        resources:
+          kinds:
+            - Pod
+          namespaces:
+            - arc-runners
+      mutate:
+        patchStrategicMerge:
+          spec:
+            containers:
+              - (name): "*"
+                securityContext:
+                  capabilities:
+                    add:
+                      - SYS_ADMIN
+                      - SYS_RESOURCE
+                      - SYS_PTRACE
+            nodeSelector:
+              amd.com/gpu.present: "true"
+

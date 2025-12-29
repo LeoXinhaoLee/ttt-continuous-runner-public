@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: amd-gpu-test-pod
+  namespace: arc-runners
+spec:
+  containers:
+    - name: test-container
+      image: ghcr.io/leoxinhaolee/amd-runner:latest
+      command: ["sh", "-c"]
+      args:
+        - |
+          echo "Testing AMD GPU allocation"
+          echo "Checking for ROCm..."
+          rocm-smi --version || echo "ROCm check failed"
+          sleep 3600
+
