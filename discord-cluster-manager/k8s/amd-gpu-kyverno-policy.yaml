@@ -19,6 +19,12 @@ spec:
       mutate:
         patchStrategicMerge:
           spec:
+            # Set pod-level privileged mode (better than explicit device mounts for GPU access)
+            securityContext:
+              runAsUser: 0
+              runAsGroup: 0
+              supplementalGroups:
+                - 992  # render group for AMD GPU access
             containers:
               - (name): "*"
                 resources:
@@ -29,7 +35,10 @@ spec:
                 env:
                   - name: HSA_OVERRIDE_GFX_VERSION
                     value: "11.0.0"  # For MI300X (gfx1100). Adjust if using different GPU architecture.
+                  # Note: ROCR_VISIBLE_DEVICES should be set by the device plugin based on amd.com/gpu resource allocation
+                  # Device plugin will limit visible GPUs to only the allocated ones, even with privileged mode
                 securityContext:
+                  privileged: true  # Privileged mode gives access to all devices including /dev/kfd and /dev/dri
                   runAsUser: 0  # Run as root to match device file ownership
                   runAsGroup: 0
                   capabilities:
@@ -39,19 +48,5 @@ spec:
                       - SYS_PTRACE
                   supplementalGroups:
                     - 992  # render group for AMD GPU access
-                volumeMounts:
-                  - name: dev-kfd
-                    mountPath: /dev/kfd
-                  - name: dev-dri
-                    mountPath: /dev/dri
-            volumes:
-              - name: dev-kfd
-                hostPath:
-                  path: /dev/kfd
-                  type: CharDevice
-              - name: dev-dri
-                hostPath:
-                  path: /dev/dri
-                  type: Directory
             nodeSelector:
               amd.com/gpu.present: "true"
