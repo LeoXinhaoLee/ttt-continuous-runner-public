@@ -73,7 +73,7 @@ if [ "$AMD_PODS" -gt "0" ]; then
     AMD_RUNNING=$(kubectl get pods -n kube-system --no-headers 2>/dev/null | grep amdgpu | grep Running | wc -l || echo "0")
     echo "  AMD GPU device plugin: ${AMD_RUNNING}/${AMD_PODS} pods running"
 else
-    echo -e "  ${YELLOW}AMD GPU device plugin: Not installed${NC}"
+    echo -e "  ${YELLOW}AMD GPU device plugin: Not installed (may need installation)${NC}"
 fi
 
 # ARC runner set
@@ -101,20 +101,21 @@ else
 fi
 echo ""
 
-# Step 5: Verify GPU resources
-echo -e "${GREEN}Step 5: Verifying GPU resources...${NC}"
-GPU_COUNT=$(kubectl describe node 2>/dev/null | grep -A 5 "amd.com/gpu" | grep "amd.com/gpu:" | grep -o "[0-9]" | head -1 || echo "0")
-if [ "$GPU_COUNT" -gt "0" ]; then
-    echo -e "${GREEN}✓ GPU resources detected: ${GPU_COUNT} GPU(s)${NC}"
-else
-    echo -e "${YELLOW}⚠ No GPU resources detected (device plugin may need restart)${NC}"
-fi
-
-# Check Kyverno policy exists
+# Step 5: Verify Kyverno policy
+echo -e "${GREEN}Step 5: Verifying Kyverno policy...${NC}"
 if kubectl get clusterpolicy inject-amd-gpu-resources > /dev/null 2>&1; then
     echo -e "${GREEN}✓ Kyverno policy exists${NC}"
 else
     echo -e "${RED}✗ Kyverno policy not found${NC}"
+fi
+
+# Step 6: Verify GPU resources
+echo -e "${GREEN}Step 6: Verifying GPU resources...${NC}"
+GPU_COUNT=$(kubectl get nodes -o jsonpath='{.items[0].status.capacity.amd\.com/gpu}' 2>/dev/null || echo "0")
+if [ "$GPU_COUNT" != "0" ] && [ -n "$GPU_COUNT" ]; then
+    echo -e "${GREEN}✓ GPU resources available: ${GPU_COUNT} GPU(s)${NC}"
+else
+    echo -e "${YELLOW}⚠ GPU resources not detected (check device plugin)${NC}"
 fi
 echo ""
 
@@ -122,8 +123,8 @@ echo ""
 echo -e "${GREEN}=== Recovery Summary ===${NC}"
 echo "k3s: $(systemctl is-active k3s || echo 'not running')"
 echo "Kubernetes nodes: ${NODE_COUNT}"
-echo "GPU resources: ${GPU_COUNT} GPU(s)"
 echo "ARC runner sets: ${ARC_RUNNER_SET}"
+echo "Setup: Device plugin (AMD k8s-device-plugin)"
 echo ""
 echo -e "${GREEN}Recovery complete!${NC}"
 echo ""

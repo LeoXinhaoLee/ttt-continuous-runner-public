@@ -3,22 +3,40 @@ kind: ClusterPolicy
 metadata:
   name: inject-amd-gpu-node-selector
   annotations:
-    description: "Injects node selector for AMD GPU nodes (for use without GPU device plugin)"
+    description: "Injects node selector and privileged mode for AMD GPU nodes (for use without GPU device plugin, matches pods ending with -workflow)"
 spec:
+  background: false
   rules:
-    - name: add-amd-gpu-node-selector
+    - name: add-amd-gpu-node-selector-to-workflow-pods
       match:
         resources:
           kinds:
             - Pod
           namespaces:
             - arc-runners
+          names:
+            - "*-workflow"
       mutate:
         patchStrategicMerge:
           spec:
+            securityContext:
+              runAsUser: 0
+              runAsGroup: 0
+              supplementalGroups:
+                - 992  # render group for AMD GPU access
             containers:
               - (name): "*"
+                env:
+                  - name: HSA_OVERRIDE_GFX_VERSION
+                    value: "11.0.0"  # For MI300X (gfx1100). Adjust if using different GPU architecture.
+                  - name: ROCR_VISIBLE_DEVICES
+                    value: "0"  # Limit to first GPU (since we only have 1 GPU per pod)
+                  - name: HIP_VISIBLE_DEVICES
+                    value: "0"  # Limit to first GPU for HIP
                 securityContext:
+                  privileged: true  # Privileged mode gives access to all devices including /dev/kfd and /dev/dri
+                  runAsUser: 0  # Run as root to match device file ownership
+                  runAsGroup: 0
                   capabilities:
                     add:
                       - SYS_ADMIN
@@ -26,5 +44,6 @@ spec:
                       - SYS_PTRACE
             nodeSelector:
               amd.com/gpu.present: "true"
+
 
 

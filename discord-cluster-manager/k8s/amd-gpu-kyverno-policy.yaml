@@ -19,12 +19,21 @@ spec:
       mutate:
         patchStrategicMerge:
           spec:
-            # Set pod-level privileged mode (better than explicit device mounts for GPU access)
+            # k3s uses containerd+runc with different LSM defaults than Docker
+            # Explicitly disable seccomp and AppArmor for ROCm compatibility
             securityContext:
+              seccompProfile:
+                type: Unconfined
               runAsUser: 0
               runAsGroup: 0
               supplementalGroups:
                 - 992  # render group for AMD GPU access
+            # Large /dev/shm for PyTorch/ROCm (default is too small)
+            volumes:
+              - name: dshm
+                emptyDir:
+                  medium: Memory
+                  sizeLimit: "8Gi"
             containers:
               - (name): "*"
                 resources:
@@ -32,13 +41,14 @@ spec:
                     amd.com/gpu: "1"
                   limits:
                     amd.com/gpu: "1"
-                env:
-                  - name: HSA_OVERRIDE_GFX_VERSION
-                    value: "11.0.0"  # For MI300X (gfx1100). Adjust if using different GPU architecture.
-                  # Note: ROCR_VISIBLE_DEVICES should be set by the device plugin based on amd.com/gpu resource allocation
-                  # Device plugin will limit visible GPUs to only the allocated ones, even with privileged mode
+                # Note: HSA_OVERRIDE_GFX_VERSION removed - only set if actually needed
+                # Note: ROCR_VISIBLE_DEVICES not needed - device plugin handles GPU allocation
+                volumeMounts:
+                  - name: dshm
+                    mountPath: /dev/shm
                 securityContext:
                   privileged: true  # Privileged mode gives access to all devices including /dev/kfd and /dev/dri
+                  allowPrivilegeEscalation: true
                   runAsUser: 0  # Run as root to match device file ownership
                   runAsGroup: 0
                   capabilities:
@@ -46,7 +56,5 @@ spec:
                       - SYS_ADMIN
                       - SYS_RESOURCE
                       - SYS_PTRACE
-                  supplementalGroups:
-                    - 992  # render group for AMD GPU access
             nodeSelector:
               amd.com/gpu.present: "true"

@@ -102,3 +102,5 @@ When you scale to 8 GPUs:
 - Each pod gets a different GPU via device plugin allocation
 - No conflicts, proper isolation maintained
 
+
+

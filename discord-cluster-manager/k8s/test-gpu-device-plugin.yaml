@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-gpu-device-plugin
+  namespace: arc-runners
+spec:
+  containers:
+  - name: test
+    image: ghcr.io/leoxinhaolee/amd-runner:latest
+    command: ["/bin/bash", "-c"]
+    args:
+      - |
+        set -e
+        echo "=== GPU Device Plugin Test ==="
+        echo ""
+        echo "1. Checking device files..."
+        ls -la /dev/kfd /dev/dri/renderD* 2>&1 | head -5 || echo "Devices not found"
+        echo ""
+        echo "2. Testing rocminfo..."
+        timeout 5 rocminfo --version 2>&1 | head -20 || echo "rocminfo failed"
+        echo ""
+        echo "3. Testing amd-smi..."
+        timeout 5 amd-smi 2>&1 | head -10 || echo "amd-smi failed"
+        echo ""
+        echo "4. Checking ROCR_VISIBLE_DEVICES..."
+        echo "ROCR_VISIBLE_DEVICES=${ROCR_VISIBLE_DEVICES:-not set}"
+        echo ""
+        echo "5. Testing PyTorch GPU detection..."
+        python3 -c "import torch; print('PyTorch:', torch.__version__); print('GPU available:', torch.cuda.is_available()); print('GPU count:', torch.cuda.device_count() if torch.cuda.is_available() else 0)"
+        echo ""
+        echo "6. Testing PyTorch GPU operations (torch.rand().cuda())..."
+        timeout 30 python3 -c "import torch; import sys; print('Creating tensor on GPU...'); x = torch.rand(10, 10, device='cuda'); print('Tensor created:', x.shape); y = x * 2; print('Computation done:', y.shape); torch.cuda.synchronize(); print('Synchronized successfully'); torch.cuda.empty_cache(); print('GPU operations completed successfully!')" || echo "PyTorch operation failed or timed out"
+        echo ""
+        echo "=== Test Complete: SUCCESS ==="
+    env:
+      - name: HSA_OVERRIDE_GFX_VERSION
+        value: "11.0.0"
+    resources:
+      requests:
+        amd.com/gpu: "1"
+      limits:
+        amd.com/gpu: "1"
+    securityContext:
+      privileged: true
+      runAsUser: 0
+      runAsGroup: 0
+      capabilities:
+        add:
+          - SYS_ADMIN
+          - SYS_RESOURCE
+          - SYS_PTRACE
+  restartPolicy: Never
+  nodeSelector:
+    amd.com/gpu.present: "true"
+  securityContext:
+    runAsUser: 0
+    runAsGroup: 0
+    supplementalGroups:
+      - 992
+

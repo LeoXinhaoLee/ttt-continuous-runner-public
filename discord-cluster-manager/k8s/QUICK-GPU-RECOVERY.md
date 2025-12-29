@@ -52,3 +52,5 @@ rocminfo | head -20
 amd-smi
 ```
 
+
+

@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rocm-torch-smoke
+  namespace: arc-runners
+  annotations:
+    container.apparmor.security.beta.kubernetes.io/test: unconfined
+spec:
+  restartPolicy: Never
+  securityContext:
+    seccompProfile:
+      type: Unconfined
+    supplementalGroups:
+      - 992   # render gid on your node (verify via: getent group render)
+
+  volumes:
+    - name: dshm
+      emptyDir:
+        medium: Memory
+        sizeLimit: "8Gi"
+
+  containers:
+    - name: test
+      image: ghcr.io/leoxinhaolee/amd-runner:latest
+      resources:
+        limits:
+          amd.com/gpu: "1"
+        requests:
+          amd.com/gpu: "1"
+      volumeMounts:
+        - name: dshm
+          mountPath: /dev/shm
+      securityContext:
+        privileged: true
+        allowPrivilegeEscalation: true
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -euo pipefail
+          echo "=== Step 1: Device files ==="
+          ls -l /dev/kfd || true
+          ls -l /dev/dri/renderD* | head -20 || true
+          echo ""
+          echo "=== Step 2: ROCm info ==="
+          timeout 10 rocminfo --support | head -80 || true
+          echo ""
+          echo "=== Step 3: PyTorch GPU detection ==="
+          python3 -c "import torch; print('torch', torch.__version__); print('is_available', torch.cuda.is_available()); print('GPU count:', torch.cuda.device_count() if torch.cuda.is_available() else 0)" 2>&1
+          echo ""
+          echo "=== Step 4: PyTorch operation (1024x1024) ==="
+          timeout 30 python3 -c "import torch; print('Creating tensor...'); x = torch.rand((1024,1024), device='cuda'); print('Tensor created'); y = x @ x; print('Matrix multiply done'); torch.cuda.synchronize(); print('SUCCESS: ok', y.mean().item())" 2>&1
+          echo ""
+          echo "=== Test complete ==="
+  nodeSelector:
+    amd.com/gpu.present: "true"
+
