@@ -171,9 +171,10 @@ else
 fi
 echo ""
 
-# Step 8: Apply LimitRange
-echo -e "${GREEN}Step 8: Applying GPU LimitRange...${NC}"
-kubectl apply -f "${SCRIPT_DIR}/amd-gpu-limitrange.yaml"
+# Step 8: Skip LimitRange (not needed - Kyverno policy handles GPU injection)
+echo -e "${GREEN}Step 8: Skipping LimitRange (Kyverno policy handles GPU injection)...${NC}"
+echo "Note: LimitRange is not used for GPU resources to avoid applying them to all pods."
+echo "The Kyverno policy selectively injects GPU resources into workflow pods only."
 echo ""
 
 # Step 9: Wait for runners to be ready

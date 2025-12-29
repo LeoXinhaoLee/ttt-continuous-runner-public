@@ -3,16 +3,19 @@ kind: ClusterPolicy
 metadata:
   name: inject-amd-gpu-resources
   annotations:
-    description: "Injects AMD GPU resource requests (1 GPU per pod) and node selector for ARC runner pods"
+    description: "Injects AMD GPU resource requests (1 GPU per pod) and node selector for ARC workflow job containers (matches pods ending with -workflow)"
 spec:
+  background: false
   rules:
-    - name: add-amd-gpu-resources
+    - name: add-amd-gpu-resources-to-workflow-pods
       match:
         resources:
           kinds:
             - Pod
           namespaces:
             - arc-runners
+          names:
+            - "*-workflow"
       mutate:
         patchStrategicMerge:
           spec:
@@ -31,4 +34,3 @@ spec:
                       - SYS_PTRACE
             nodeSelector:
               amd.com/gpu.present: "true"
-

@@ -9,13 +9,14 @@ Usage (from project root):
 You must:
   1. Have a GitHub token set in environment variable GITHUB_TOKEN
   2. Have GITHUB_REPO set (e.g., "owner/repo")
-  3. Have a self-hosted runner set up with the amd-docker label
-  4. Have the Docker image published (ghcr.io/gpu-mode/amd-runner:latest)
+  3. Have ARC (Actions Runner Controller) set up with runner label amd-arc-runner
+  4. Have the Docker image published (ghcr.io/leoxinhaolee/amd-runner:latest)
 """
 
 import argparse
 import asyncio
 import base64
+import dataclasses
 import datetime
 import json
 import os
@@ -74,6 +75,8 @@ async def run_mla_decode_on_github(
     github_repo: Optional[str] = None,
     github_token: Optional[str] = None,
     github_branch: Optional[str] = None,
+    runner_name: Optional[str] = None,
+    workflow_file: Optional[str] = None,
 ) -> tuple[FullResult, LeaderboardTask]:
     """
     Run an mla-decode submission on GitHub Actions using the official task definition.
@@ -85,6 +88,11 @@ async def run_mla_decode_on_github(
         github_repo: GitHub repository (owner/repo). If None, uses GITHUB_REPO env var.
         github_token: GitHub token. If None, uses GITHUB_TOKEN env var.
         github_branch: GitHub branch. If None, uses GITHUB_WORKFLOW_BRANCH env var or 'main'.
+        runner_name: GitHub Actions runner label (e.g., 'amd-arc-runner' or 'amd-docker'). 
+                     If None, defaults to 'amd-arc-runner' based on GPU type.
+        workflow_file: Workflow file path (e.g., 'amd-mla-decode-workflow-ARC.yml' or 
+                       '.github/workflows/amd-mla-decode-workflow.yml'). If None, defaults to 
+                       '.github/workflows/amd-mla-decode-workflow-ARC.yml'.
     """
     # Load task from mla-decode/task.yml
     task = load_mla_decode_task()
@@ -128,13 +136,15 @@ async def run_mla_decode_on_github(
         mode=mode_enum,
     )
 
-    # Determine runner name based on GPU type
-    runner_name_map = {
-        "MI300": "amd-docker",
-        "MI250": "amd-docker",  # Adjust if you have a different runner for MI250
-        "MI300x8": "amd-docker",  # Adjust if you have a different runner for MI300x8
-    }
-    runner_name = runner_name_map.get(gpu_type.upper(), "amd-docker")
+    # Determine runner name based on GPU type (if not explicitly provided)
+    if runner_name is None:
+        # Default to ARC runner, but can be overridden via parameter
+        runner_name_map = {
+            "MI300": "amd-arc-runner",
+            "MI250": "amd-arc-runner",  # Adjust if you have a different runner for MI250
+            "MI300x8": "amd-arc-runner",  # Adjust if you have a different runner for MI300x8
+        }
+        runner_name = runner_name_map.get(gpu_type.upper(), "amd-arc-runner")
 
     reporter = SimpleReporter(f"mla-decode on {gpu_enum.name} (GitHub Actions)")
 
@@ -149,8 +159,13 @@ async def run_mla_decode_on_github(
         "requirements": AMD_REQUIREMENTS,
     }
 
-    # Trigger the workflow - manually handle since GitHubRun doesn't support our workflow name yet
-    workflow_file = "amd-mla-decode-workflow.yml"
+    # Determine workflow file (if not explicitly provided)
+    if workflow_file is None:
+        # Default to ARC workflow, but can be overridden via parameter
+        workflow_file = ".github/workflows/amd-mla-decode-workflow-ARC.yml"
+    elif not workflow_file.startswith(".github/workflows/"):
+        # If user provided just filename, prepend the path
+        workflow_file = f".github/workflows/{workflow_file}"
     run_id = str(uuid.uuid4())
     inputs_with_run_id = {**inputs, "run_id": run_id}
     
@@ -159,8 +174,9 @@ async def run_mla_decode_on_github(
     gh = Github(token)
     github_repo_obj = gh.get_repo(repo)
     
-    # Get the workflow
     workflow = await asyncio.to_thread(github_repo_obj.get_workflow, workflow_file)
+    print(f"✓ Found workflow using path: {workflow_file}")
+    assert workflow is not None, f"Workflow '{workflow_file}' not found in repository '{repo}'"
     
     # Trigger it
     success = await asyncio.to_thread(
@@ -234,12 +250,41 @@ async def run_mla_decode_on_github(
 
     await reporter.push("Downloading artifacts...")
     
+    # Check workflow run status first
+    run_status = run.status
+    run_conclusion = getattr(run.run, 'conclusion', None) if run.run else None
+    if run_status != "completed":
+        raise RuntimeError(
+            f"Workflow did not complete. Status: {run_status}. "
+            f"Check the workflow run at: {run.html_url}"
+        )
+    if run_conclusion and run_conclusion != "success":
+        raise RuntimeError(
+            f"Workflow completed with failure. Conclusion: {run_conclusion}. "
+            f"Check the workflow run at: {run.html_url}"
+        )
+    
     # Get artifacts
     artifacts = run.get_artifact_index()
+    
+    # List available artifacts for debugging
+    if not artifacts:
+        raise RuntimeError(
+            f"No artifacts found in workflow run. "
+            f"Workflow may have failed before creating artifacts. "
+            f"Check the workflow run at: {run.html_url}"
+        )
+    
+    await reporter.push(f"Found {len(artifacts)} artifact(s): {', '.join(artifacts.keys())}")
 
     # Download result.json
     if "run-result" not in artifacts:
-        raise RuntimeError("Missing 'run-result' artifact from workflow run")
+        available = ", ".join(artifacts.keys()) if artifacts else "none"
+        raise RuntimeError(
+            f"Missing 'run-result' artifact from workflow run. "
+            f"Available artifacts: {available}. "
+            f"Check the workflow run at: {run.html_url}"
+        )
 
     result_artifact = artifacts["run-result"]
     artifact_data = await run.download_artifact(result_artifact)
@@ -274,6 +319,28 @@ async def run_mla_decode_on_github(
     result = FullResult(success=True, error="", runs=runs, system=system)
 
     return result, task
+
+
+def serialize_result_to_dict(result: FullResult) -> dict:
+    """Serialize FullResult to a JSON-serializable dictionary."""
+    runs_dict = {}
+    for run_name, eval_result in result.runs.items():
+        run_data = {
+            "start": eval_result.start.isoformat(),
+            "end": eval_result.end.isoformat(),
+            "compilation": dataclasses.asdict(eval_result.compilation) if eval_result.compilation else None,
+            "run": dataclasses.asdict(eval_result.run) if eval_result.run else None,
+            "profile": dataclasses.asdict(eval_result.profile) if eval_result.profile else None,
+        }
+        runs_dict[run_name] = run_data
+    
+    result_dict = {
+        "success": result.success,
+        "error": result.error,
+        "runs": runs_dict,
+        "system": dataclasses.asdict(result.system),
+    }
+    return result_dict
 
 
 def print_benchmark_details(result: FullResult):
@@ -411,6 +478,21 @@ def parse_args() -> argparse.Namespace:
         default="main",
         help="GitHub branch to use (default: main). Overrides GITHUB_WORKFLOW_BRANCH env var.",
     )
+    parser.add_argument(
+        "--output-dir",
+        "-o",
+        help="Output directory for saving results. Results will be saved as <submission_name>.out in this directory.",
+    )
+    parser.add_argument(
+        "--runner",
+        "-r",
+        help="GitHub Actions runner label to use (default: amd-arc-runner for ARC, or amd-docker for manual). Overrides GPU-based defaults.",
+    )
+    parser.add_argument(
+        "--workflow-file",
+        "-w",
+        help="GitHub Actions workflow file to use (default: amd-mla-decode-workflow-ARC.yml). Can be just the filename or full path like .github/workflows/filename.yml.",
+    )
     return parser.parse_args()
 
 
@@ -430,9 +512,26 @@ async def main():
         github_repo=args.github_repo,
         github_token=args.github_token,
         github_branch=args.github_branch,
+        runner_name=args.runner,
+        workflow_file=args.workflow_file,
     )
 
-    print_result(result, task)
+    # Save result to output file if output directory is specified
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Use the submission file name (without extension) as the output file name
+        submission_stem = submission_path.stem
+        output_file = output_dir / f"{submission_stem}.out"
+        
+        result_dict = serialize_result_to_dict(result)
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(result_dict, f, indent=2)
+        
+        print(f"\nResult saved to: {output_file}")
+    else:
+        print_result(result, task)
 
 
 if __name__ == "__main__":
