@@ -27,3 +27,4 @@ spec:
             nodeSelector:
               amd.com/gpu.present: "true"
 
+

@@ -26,11 +26,32 @@ spec:
                     amd.com/gpu: "1"
                   limits:
                     amd.com/gpu: "1"
+                env:
+                  - name: HSA_OVERRIDE_GFX_VERSION
+                    value: "11.0.0"  # For MI300X (gfx1100). Adjust if using different GPU architecture.
                 securityContext:
+                  runAsUser: 0  # Run as root to match device file ownership
+                  runAsGroup: 0
                   capabilities:
                     add:
                       - SYS_ADMIN
                       - SYS_RESOURCE
                       - SYS_PTRACE
+                  supplementalGroups:
+                    - 992  # render group for AMD GPU access
+                volumeMounts:
+                  - name: dev-kfd
+                    mountPath: /dev/kfd
+                  - name: dev-dri
+                    mountPath: /dev/dri
+            volumes:
+              - name: dev-kfd
+                hostPath:
+                  path: /dev/kfd
+                  type: CharDevice
+              - name: dev-dri
+                hostPath:
+                  path: /dev/dri
+                  type: Directory
             nodeSelector:
               amd.com/gpu.present: "true"
