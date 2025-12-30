@@ -22,6 +22,8 @@ on:
 
 run-name: 'AMD MLA-Decode Job - ${{ github.event.inputs.run_id }}'
 
+# Note: No concurrency group needed - each workflow run is independent (unique run_id)
+# ARC maxRunners: 8 will limit concurrent runners and prevent burst behavior
 jobs:
   run:
     runs-on: ${{ github.event.inputs.runner }}

@@ -146,6 +146,10 @@ if ! kubectl get storageclass "${STORAGE_CLASS}" &>/dev/null; then
     echo -e "${YELLOW}Using storage class: ${STORAGE_CLASS}${NC}"
 fi
 
+# Determine max runners based on GPU count (default to 8)
+MAX_RUNNERS="${MAX_RUNNERS:-8}"
+echo -e "${YELLOW}Setting maxRunners to ${MAX_RUNNERS} (matching GPU capacity)${NC}"
+
 helm install "${INSTALLATION_NAME}" \
     --namespace "${NAMESPACE_RUNNERS}" \
     --create-namespace \
@@ -155,6 +159,7 @@ helm install "${INSTALLATION_NAME}" \
     --set containerMode.kubernetesModeWorkVolumeClaim.storageClassName="${STORAGE_CLASS}" \
     --set containerMode.kubernetesModeWorkVolumeClaim.accessModes[0]="ReadWriteOnce" \
     --set containerMode.kubernetesModeWorkVolumeClaim.resources.requests.storage="10Gi" \
+    --set maxRunners="${MAX_RUNNERS}" \
     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
 echo ""
 
