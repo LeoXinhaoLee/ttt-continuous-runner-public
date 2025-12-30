@@ -811,10 +811,11 @@ def run_evaluation(
         if not results["test"].run or not results["test"].run.passed:
             return results
 
-        results["benchmark"] = call(mode="benchmark", **common_args)
+        # @xh: Unnecessary for leaderboard mode
+        # results["benchmark"] = call(mode="benchmark", **common_args)
 
-        if not results["benchmark"].run or not results["benchmark"].run.passed:
-            return results
+        # if not results["benchmark"].run or not results["benchmark"].run.passed:
+        #     return results
 
         # if they pass, run the leaderboard validation
         results["leaderboard"] = call(mode="leaderboard", **common_args)
