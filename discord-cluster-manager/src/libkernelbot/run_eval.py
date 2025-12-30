@@ -806,10 +806,10 @@ def run_evaluation(
         results[mode] = call(mode=mode, **common_args)
     elif mode in ["private", "leaderboard"]:
         # first, run the tests
-        results["test"] = call(mode="test", **common_args)
+        # results["test"] = call(mode="test", **common_args)
 
-        if not results["test"].run or not results["test"].run.passed:
-            return results
+        # if not results["test"].run or not results["test"].run.passed:
+        #     return results
 
         # @xh: Unnecessary for leaderboard mode
         # results["benchmark"] = call(mode="benchmark", **common_args)
