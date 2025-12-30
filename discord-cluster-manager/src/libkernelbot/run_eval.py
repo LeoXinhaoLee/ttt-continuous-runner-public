@@ -737,39 +737,40 @@ def run_pytorch_script(  # noqa: C901
 
         # "compile" step: execute the script once. Will populate
         # `load_inline`'s compile cache, so the actual runs will be faster.
-        try:
-            compile_run = run_program(["python3", "submission.py"], seed=1, timeout=Timeout.COMPILE)
-            if "-DTORCH_EXTENSION_NAME" in compile_run.stdout:
-                comp = CompileResult(
-                    nvcc_found=True,
-                    nvcc_version="",
-                    success=True,
-                    command=compile_run.command,
-                    stdout=compile_run.stdout,
-                    stderr=compile_run.stderr,
-                    exit_code=compile_run.exit_code,
-                )
-            else:
-                comp = None
-        except subprocess.CalledProcessError as e:
-            # This step is purely optional, so we just go on
-            # if it fails
-            comp = CompileResult(
-                nvcc_found=False,
-                nvcc_version="",
-                success=False,
-                command="python submission.py",
-                stdout=e.stdout,
-                stderr=e.stderr,
-                exit_code=e.returncode,
-            )
+        # try:
+        #     compile_run = run_program(["python3", "submission.py"], seed=1, timeout=Timeout.COMPILE)
+        #     if "-DTORCH_EXTENSION_NAME" in compile_run.stdout:
+        #         comp = CompileResult(
+        #             nvcc_found=True,
+        #             nvcc_version="",
+        #             success=True,
+        #             command=compile_run.command,
+        #             stdout=compile_run.stdout,
+        #             stderr=compile_run.stderr,
+        #             exit_code=compile_run.exit_code,
+        #         )
+        #     else:
+        #         comp = None
+        # except subprocess.CalledProcessError as e:
+        #     # This step is purely optional, so we just go on
+        #     # if it fails
+        #     comp = CompileResult(
+        #         nvcc_found=False,
+        #         nvcc_version="",
+        #         success=False,
+        #         command="python submission.py",
+        #         stdout=e.stdout,
+        #         stderr=e.stderr,
+        #         exit_code=e.returncode,
+        #     )
 
         run, profile = run_single_evaluation(["python3", main], **kwargs)
 
         return EvalResult(
             start=start,
             end=datetime.datetime.now(),
-            compilation=comp,
+            # compilation=comp,
+            compilation=None,
             run=run,
             profile=profile,
         )
