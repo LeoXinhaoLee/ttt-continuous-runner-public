@@ -121,3 +121,26 @@ RUN cd /tmp \
 
 ENV ROCSHMEM_INSTALL_DIR=${ROCSHMEM_INSTALL_DIR}
 ENV LD_LIBRARY_PATH="${ROCSHMEM_INSTALL_DIR}/lib:${LD_LIBRARY_PATH}"
+
+# Pre-install common workflow dependencies to speed up workflow runs
+# These are from requirements-dev.txt - pre-installing them in the image
+# means the workflow step will be much faster (pip will skip already-installed packages)
+RUN sudo pip install --no-cache-dir \
+    PyGithub \
+    aiohttp \
+    "discord.py" \
+    python-dotenv \
+    requests \
+    modal \
+    psycopg2-binary \
+    yoyo-migrations \
+    better_profanity \
+    PyYAML \
+    "fastapi[all]" \
+    uvicorn \
+    jinja2 \
+    pytest-asyncio==1.1.0
+
+# Note: The workflow will still run 'pip install -e .' to install the package itself
+# and any dynamic requirements.txt from the workflow input. Those cannot be pre-installed
+# but installing requirements-dev.txt dependencies will be much faster now.
