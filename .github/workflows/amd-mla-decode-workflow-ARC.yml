@@ -32,6 +32,8 @@ jobs:
       # Note: --privileged removed - GPU isolation handled by Kyverno policy in Kubernetes
     steps:
     - uses: actions/checkout@v3
+      with:
+        fetch-depth: 1  # Only fetch the latest commit
 
     - name: Create input files
       shell: bash
@@ -51,8 +53,8 @@ jobs:
       working-directory: discord-cluster-manager
       run: |
         # Install the package itself (needs source code from checkout)
-        # All dependencies are already pre-installed in the Docker image
-        pip install -e . --root-user-action=ignore
+        # All dependencies are already pre-installed in the Docker image, so skip dependency checking
+        pip install -e . --no-deps --root-user-action=ignore
 
     - name: Run eval script
       shell: bash
