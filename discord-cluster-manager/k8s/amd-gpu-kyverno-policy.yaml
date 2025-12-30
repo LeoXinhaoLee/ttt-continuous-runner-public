@@ -3,7 +3,7 @@ kind: ClusterPolicy
 metadata:
   name: inject-amd-gpu-resources
   annotations:
-    description: "Injects AMD GPU resource requests (1 GPU per pod) and node selector for ARC workflow job containers (matches pods ending with -workflow)"
+    description: "Injects AMD GPU, CPU, and memory resource requests/limits (1 GPU, 12 CPU request/16 limit, 64Gi memory request/128Gi limit) and node selector for ARC workflow job containers (matches pods ending with -workflow)"
 spec:
   background: false
   rules:
@@ -39,8 +39,12 @@ spec:
                 resources:
                   requests:
                     amd.com/gpu: "1"
+                    cpu: "12"        # Request 12 CPUs per pod (guaranteed, prevents throttling)
+                    memory: "64Gi"   # Request 64GB per pod (guaranteed, prevents OOM kills)
                   limits:
                     amd.com/gpu: "1"
+                    cpu: "16"        # Allow burst up to 16 CPUs if available
+                    memory: "128Gi"  # Allow burst up to 128GB if available
                 # Note: Do NOT set ROCR_VISIBLE_DEVICES - let device plugin handle GPU isolation
                 # Device plugin restricts device file access so each pod only sees its allocated GPU
                 volumeMounts:
